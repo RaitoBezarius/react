@@ -210,6 +210,13 @@ function assertValidProps(component, props) {
 }
 
 function enqueuePutListener(inst, registrationName, listener, transaction) {
+  var containerInfo = inst._nativeContainerInfo;
+  var isDocumentFragment = containerInfo._node && containerInfo._node.nodeType === DOC_FRAGMENT_TYPE;
+  var doc = isDocumentFragment ? containerInfo._node : containerInfo._ownerDocument;
+  if (!doc) {
+    // Server rendering.
+    return;
+  }
   if (__DEV__) {
     // IE8 has no API for event capturing and the `onScroll` event doesn't
     // bubble.
@@ -217,13 +224,6 @@ function enqueuePutListener(inst, registrationName, listener, transaction) {
       registrationName !== 'onScroll' || isEventSupported('scroll', true),
       'This browser doesn\'t support the `onScroll` event'
     );
-  }
-  var containerInfo = inst._nativeContainerInfo;
-  var isDocumentFragment = containerInfo._node && containerInfo._node.nodeType === DOC_FRAGMENT_TYPE;
-  var doc = isDocumentFragment ? containerInfo._node : containerInfo._ownerDocument;
-  if (!doc) {
-    // Server rendering.
-    return;
   }
   listenTo(registrationName, doc);
   transaction.getReactMountReady().enqueue(putListener, {
