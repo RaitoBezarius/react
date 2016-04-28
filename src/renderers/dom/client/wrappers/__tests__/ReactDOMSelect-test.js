@@ -348,7 +348,7 @@ describe('ReactDOMSelect', function() {
   });
 
   it('should support ReactLink', function() {
-    var link = new ReactLink('giraffe', jest.genMockFn());
+    var link = new ReactLink('giraffe', jest.fn());
     var stub =
       <select valueLink={link}>
         <option value="monkey">A monkey!</option>
@@ -536,5 +536,22 @@ describe('ReactDOMSelect', function() {
     expect(() => ReactTestUtils.Simulate.change(node)).not.toThrow(
       "Cannot set property 'pendingUpdate' of null"
     );
+  });
+
+  it('should select grandchild options nested inside an optgroup', function() {
+    var stub =
+      <select value="b" onChange={noop}>
+        <optgroup label="group">
+          <option value="a">a</option>
+          <option value="b">b</option>
+          <option value="c">c</option>
+        </optgroup>
+      </select>;
+    var container = document.createElement('div');
+    var node = ReactDOM.render(stub, container);
+
+    expect(node.options[0].selected).toBe(false);  // a
+    expect(node.options[1].selected).toBe(true);   // b
+    expect(node.options[2].selected).toBe(false);  // c
   });
 });

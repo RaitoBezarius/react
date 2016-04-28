@@ -11,19 +11,19 @@
 
 'use strict';
 
-var assign = require('Object.assign');
 
 describe('ReactDOMComponent', function() {
   var React;
-
   var ReactDOM;
   var ReactDOMServer;
+  var inputValueTracking;
 
   beforeEach(function() {
     jest.resetModuleRegistry();
     React = require('React');
     ReactDOM = require('ReactDOM');
     ReactDOMServer = require('ReactDOMServer');
+    inputValueTracking = require('inputValueTracking');
   });
 
   describe('updateDOM', function() {
@@ -450,11 +450,11 @@ describe('ReactDOMComponent', function() {
 
       var node = container.firstChild;
       var nodeSetAttribute = node.setAttribute;
-      node.setAttribute = jest.genMockFn();
+      node.setAttribute = jest.fn();
       node.setAttribute.mockImpl(nodeSetAttribute);
 
       var nodeRemoveAttribute = node.removeAttribute;
-      node.removeAttribute = jest.genMockFn();
+      node.removeAttribute = jest.fn();
       node.removeAttribute.mockImpl(nodeRemoveAttribute);
 
       ReactDOM.render(<div id="" />, container);
@@ -488,7 +488,7 @@ describe('ReactDOMComponent', function() {
 
       var node = container.firstChild;
       var nodeValue = ''; // node.value always returns undefined
-      var nodeValueSetter = jest.genMockFn();
+      var nodeValueSetter = jest.fn();
       Object.defineProperty(node, 'value', {
         get: function() {
           return nodeValue;
@@ -498,26 +498,19 @@ describe('ReactDOMComponent', function() {
         }),
       });
 
-      ReactDOM.render(<div value="" />, container);
-      expect(nodeValueSetter.mock.calls.length).toBe(0);
+      function renderWithValueAndExpect(value, expected) {
+        ReactDOM.render(<div value={value} />, container);
+        expect(nodeValueSetter.mock.calls.length).toBe(expected);
+      }
 
-      ReactDOM.render(<div value="foo" />, container);
-      expect(nodeValueSetter.mock.calls.length).toBe(1);
-
-      ReactDOM.render(<div value="foo" />, container);
-      expect(nodeValueSetter.mock.calls.length).toBe(1);
-
-      ReactDOM.render(<div />, container);
-      expect(nodeValueSetter.mock.calls.length).toBe(2);
-
-      ReactDOM.render(<div value={null} />, container);
-      expect(nodeValueSetter.mock.calls.length).toBe(2);
-
-      ReactDOM.render(<div value="" />, container);
-      expect(nodeValueSetter.mock.calls.length).toBe(2);
-
-      ReactDOM.render(<div />, container);
-      expect(nodeValueSetter.mock.calls.length).toBe(2);
+      renderWithValueAndExpect(undefined, 0);
+      renderWithValueAndExpect('', 0);
+      renderWithValueAndExpect('foo', 1);
+      renderWithValueAndExpect('foo', 1);
+      renderWithValueAndExpect(undefined, 2);
+      renderWithValueAndExpect(null, 2);
+      renderWithValueAndExpect('', 2);
+      renderWithValueAndExpect(undefined, 2);
     });
 
     it('should not incur unnecessary DOM mutations for boolean properties', function() {
@@ -526,7 +519,7 @@ describe('ReactDOMComponent', function() {
 
       var node = container.firstChild;
       var nodeValue = true;
-      var nodeValueSetter = jest.genMockFn();
+      var nodeValueSetter = jest.fn();
       Object.defineProperty(node, 'checked', {
         get: function() {
           return nodeValue;
@@ -559,7 +552,7 @@ describe('ReactDOMComponent', function() {
       var container = document.createElement('div');
       var node = ReactDOM.render(<div />, container);
 
-      var setter = jest.genMockFn();
+      var setter = jest.fn();
       node.setAttribute = setter;
 
       ReactDOM.render(<div dir={null} />, container);
@@ -623,7 +616,7 @@ describe('ReactDOMComponent', function() {
         this._currentElement = {props: initialProps};
         this._rootNodeID = 'test';
       };
-      assign(NodeStub.prototype, ReactDOMComponent.Mixin);
+      Object.assign(NodeStub.prototype, ReactDOMComponent.Mixin);
 
       genMarkup = function(props) {
         var transaction = new ReactReconcileTransaction();
@@ -672,7 +665,7 @@ describe('ReactDOMComponent', function() {
         this._currentElement = {props: initialProps};
         this._rootNodeID = 'test';
       };
-      assign(NodeStub.prototype, ReactDOMComponent.Mixin);
+      Object.assign(NodeStub.prototype, ReactDOMComponent.Mixin);
 
       genMarkup = function(props) {
         var transaction = new ReactReconcileTransaction();
@@ -825,11 +818,29 @@ describe('ReactDOMComponent', function() {
       );
     });
 
+    it('should track input values', function() {
+      var container = document.createElement('div');
+      var inst = ReactDOM.render(<input type="text" defaultValue="foo"/>, container);
+
+      var tracker = inputValueTracking._getTrackerFromNode(inst);
+
+      expect(tracker.getValue()).toEqual('foo');
+    });
+
+    it('should track textarea values', function() {
+      var container = document.createElement('div');
+      var inst = ReactDOM.render(<textarea defaultValue="foo"/>, container);
+
+      var tracker = inputValueTracking._getTrackerFromNode(inst);
+
+      expect(tracker.getValue()).toEqual('foo');
+    });
+
     it('should execute custom event plugin listening behavior', function() {
       var SimpleEventPlugin = require('SimpleEventPlugin');
 
-      SimpleEventPlugin.didPutListener = jest.genMockFn();
-      SimpleEventPlugin.willDeleteListener = jest.genMockFn();
+      SimpleEventPlugin.didPutListener = jest.fn();
+      SimpleEventPlugin.willDeleteListener = jest.fn();
 
       var container = document.createElement('div');
       ReactDOM.render(
@@ -847,8 +858,8 @@ describe('ReactDOMComponent', function() {
     it('should handle null and missing properly with event hooks', function() {
       var SimpleEventPlugin = require('SimpleEventPlugin');
 
-      SimpleEventPlugin.didPutListener = jest.genMockFn();
-      SimpleEventPlugin.willDeleteListener = jest.genMockFn();
+      SimpleEventPlugin.didPutListener = jest.fn();
+      SimpleEventPlugin.willDeleteListener = jest.fn();
       var container = document.createElement('div');
 
       ReactDOM.render(<div onClick={false} />, container);
@@ -1022,6 +1033,30 @@ describe('ReactDOMComponent', function() {
       expect(
         EventPluginHub.getListener(inst, 'onClick')
       ).toBe(undefined);
+    });
+
+    it('should clean up input value tracking', function() {
+      var container = document.createElement('div');
+      var node = ReactDOM.render(<input type="text" defaultValue="foo"/>, container);
+      var tracker = inputValueTracking._getTrackerFromNode(node);
+
+      spyOn(tracker, 'stopTracking');
+
+      ReactDOM.unmountComponentAtNode(container);
+
+      expect(tracker.stopTracking.calls.length).toBe(1);
+    });
+
+    it('should clean up input textarea tracking', function() {
+      var container = document.createElement('div');
+      var node = ReactDOM.render(<textarea defaultValue="foo"/>, container);
+      var tracker = inputValueTracking._getTrackerFromNode(node);
+
+      spyOn(tracker, 'stopTracking');
+
+      ReactDOM.unmountComponentAtNode(container);
+
+      expect(tracker.stopTracking.calls.length).toBe(1);
     });
 
     it('unmounts children before unsetting DOM node info', function() {

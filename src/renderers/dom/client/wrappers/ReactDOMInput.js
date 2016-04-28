@@ -11,12 +11,12 @@
 
 'use strict';
 
+var DisabledInputUtils = require('DisabledInputUtils');
 var DOMPropertyOperations = require('DOMPropertyOperations');
 var LinkedValueUtils = require('LinkedValueUtils');
 var ReactDOMComponentTree = require('ReactDOMComponentTree');
 var ReactUpdates = require('ReactUpdates');
 
-var assign = require('Object.assign');
 var invariant = require('invariant');
 var warning = require('warning');
 
@@ -69,11 +69,11 @@ var ReactDOMInput = {
     var value = LinkedValueUtils.getValue(props);
     var checked = LinkedValueUtils.getChecked(props);
 
-    var nativeProps = assign({
+    var nativeProps = Object.assign({
       // Make sure we set .type before any other properties (setting .value
       // before .type means .value is lost in IE11 and below)
       type: undefined,
-    }, props, {
+    }, DisabledInputUtils.getNativeProps(inst, props), {
       defaultChecked: undefined,
       defaultValue: undefined,
       value: value != null ? value : inst._wrapperState.initialValue,
@@ -91,6 +91,8 @@ var ReactDOMInput = {
         props,
         inst._currentElement._owner
       );
+
+      var owner = inst._currentElement._owner;
 
       if (props.valueLink !== undefined && !didWarnValueLink) {
         warning(
@@ -113,11 +115,14 @@ var ReactDOMInput = {
       ) {
         warning(
           false,
+          '%s contains an input of type %s with both checked and defaultChecked props. ' +
           'Input elements must be either controlled or uncontrolled ' +
           '(specify either the checked prop, or the defaultChecked prop, but not ' +
           'both). Decide between using a controlled or uncontrolled input ' +
           'element and remove one of these props. More info: ' +
-          'https://fb.me/react-controlled-components'
+          'https://fb.me/react-controlled-components',
+          owner && owner.getName() || 'A component',
+          props.type
         );
         didWarnCheckedDefaultChecked = true;
       }
@@ -128,11 +133,14 @@ var ReactDOMInput = {
       ) {
         warning(
           false,
+          '%s contains an input of type %s with both value and defaultValue props. ' +
           'Input elements must be either controlled or uncontrolled ' +
           '(specify either the value prop, or the defaultValue prop, but not ' +
           'both). Decide between using a controlled or uncontrolled input ' +
           'element and remove one of these props. More info: ' +
-          'https://fb.me/react-controlled-components'
+          'https://fb.me/react-controlled-components',
+          owner && owner.getName() || 'A component',
+          props.type
         );
         didWarnValueDefaultValue = true;
       }
@@ -170,7 +178,7 @@ var ReactDOMInput = {
         warning(
           false,
           '%s is changing a uncontrolled input of type %s to be controlled. ' +
-          'Input elements should not switch from uncontrolled to controlled (or viceversa). ' +
+          'Input elements should not switch from uncontrolled to controlled (or vice versa). ' +
           'Decide between using a controlled or uncontrolled input ' +
           'element for the lifetime of the component. More info: https://fb.me/react-controlled-components',
           owner && owner.getName() || 'A component',
@@ -186,7 +194,7 @@ var ReactDOMInput = {
         warning(
           false,
           '%s is changing a controlled input of type %s to be uncontrolled. ' +
-          'Input elements should not switch from controlled to uncontrolled (or viceversa). ' +
+          'Input elements should not switch from controlled to uncontrolled (or vice versa). ' +
           'Decide between using a controlled or uncontrolled input ' +
           'element for the lifetime of the component. More info: https://fb.me/react-controlled-components',
           owner && owner.getName() || 'A component',

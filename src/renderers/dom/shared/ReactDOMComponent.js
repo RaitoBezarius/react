@@ -32,15 +32,17 @@ var ReactDOMInput = require('ReactDOMInput');
 var ReactDOMOption = require('ReactDOMOption');
 var ReactDOMSelect = require('ReactDOMSelect');
 var ReactDOMTextarea = require('ReactDOMTextarea');
+var ReactInstrumentation = require('ReactInstrumentation');
 var ReactMultiChild = require('ReactMultiChild');
 var ReactPerf = require('ReactPerf');
 
-var assign = require('Object.assign');
+var emptyFunction = require('emptyFunction');
 var escapeTextContentForBrowser = require('escapeTextContentForBrowser');
 var invariant = require('invariant');
 var isEventSupported = require('isEventSupported');
 var keyOf = require('keyOf');
 var shallowEqual = require('shallowEqual');
+var inputValueTracking = require('inputValueTracking');
 var validateDOMNesting = require('validateDOMNesting');
 var warning = require('warning');
 
@@ -60,6 +62,9 @@ var RESERVED_PROPS = {
   dangerouslySetInnerHTML: null,
   suppressContentEditableWarning: null,
 };
+
+// Node type for document fragments (Node.DOCUMENT_FRAGMENT_NODE).
+var DOC_FRAGMENT_TYPE = 11;
 
 
 function getDeclarationErrorAddendum(internalInstance) {
@@ -214,7 +219,8 @@ function enqueuePutListener(inst, registrationName, listener, transaction) {
     );
   }
   var containerInfo = inst._nativeContainerInfo;
-  var doc = containerInfo._ownerDocument;
+  var isDocumentFragment = containerInfo._node && containerInfo._node.nodeType === DOC_FRAGMENT_TYPE;
+  var doc = isDocumentFragment ? containerInfo._node : containerInfo._ownerDocument;
   if (!doc) {
     // Server rendering.
     return;
@@ -234,6 +240,24 @@ function putListener() {
     listenerToPut.registrationName,
     listenerToPut.listener
   );
+}
+
+function optionPostMount() {
+  var inst = this;
+  ReactDOMOption.postMountWrapper(inst);
+}
+
+var setContentChildForInstrumentation = emptyFunction;
+if (__DEV__) {
+  setContentChildForInstrumentation = function(contentToUse) {
+    var debugID = this._debugID;
+    var contentDebugID = debugID + '#text';
+    this._contentDebugID = contentDebugID;
+    ReactInstrumentation.debugTool.onSetDisplayName(contentDebugID, '#text');
+    ReactInstrumentation.debugTool.onSetText(contentDebugID, '' + contentToUse);
+    ReactInstrumentation.debugTool.onMountComponent(contentDebugID);
+    ReactInstrumentation.debugTool.onSetChildren(debugID, [contentDebugID]);
+  };
 }
 
 // There are so many media events, it makes sense to just
@@ -263,6 +287,10 @@ var mediaEvents = {
   topVolumeChange: 'volumechange',
   topWaiting: 'waiting',
 };
+
+function trackInputValue() {
+  inputValueTracking.track(this);
+}
 
 function trapBubbledEventsLocal() {
   var inst = this;
@@ -381,7 +409,7 @@ var newlineEatingTags = {
 // For HTML, certain tags cannot have children. This has the same purpose as
 // `omittedCloseTags` except that `menuitem` should still have its closing tag.
 
-var voidElementTags = assign({
+var voidElementTags = Object.assign({
   'menuitem': true,
 }, omittedCloseTags);
 
@@ -439,6 +467,7 @@ function ReactDOMComponent(element) {
   this._flags = 0;
   if (__DEV__) {
     this._ancestorInfo = null;
+    this._contentDebugID = null;
   }
 }
 
@@ -488,6 +517,7 @@ ReactDOMComponent.Mixin = {
       case 'input':
         ReactDOMInput.mountWrapper(this, props, nativeParent);
         props = ReactDOMInput.getNativeProps(this, props);
+        transaction.getReactMountReady().enqueue(trackInputValue, this);
         transaction.getReactMountReady().enqueue(trapBubbledEventsLocal, this);
         break;
       case 'option':
@@ -502,6 +532,7 @@ ReactDOMComponent.Mixin = {
       case 'textarea':
         ReactDOMTextarea.mountWrapper(this, props, nativeParent);
         props = ReactDOMTextarea.getNativeProps(this, props);
+        transaction.getReactMountReady().enqueue(trackInputValue, this);
         transaction.getReactMountReady().enqueue(trapBubbledEventsLocal, this);
         break;
     }
@@ -590,10 +621,10 @@ ReactDOMComponent.Mixin = {
     }
 
     switch (this._tag) {
-      case 'button':
       case 'input':
-      case 'select':
       case 'textarea':
+      case 'select':
+      case 'button':
         if (props.autoFocus) {
           transaction.getReactMountReady().enqueue(
             AutoFocusUtils.focusDOMComponent,
@@ -601,6 +632,11 @@ ReactDOMComponent.Mixin = {
           );
         }
         break;
+      case 'option':
+        transaction.getReactMountReady().enqueue(
+          optionPostMount,
+          this
+        );
     }
 
     return mountImage;
@@ -641,7 +677,7 @@ ReactDOMComponent.Mixin = {
               // See `_updateDOMProperties`. style block
               this._previousStyle = propValue;
             }
-            propValue = this._previousStyleCopy = assign({}, props.style);
+            propValue = this._previousStyleCopy = Object.assign({}, props.style);
           }
           propValue = CSSPropertyOperations.createMarkupForStyles(propValue, this);
         }
@@ -697,6 +733,9 @@ ReactDOMComponent.Mixin = {
       if (contentToUse != null) {
         // TODO: Validate that text is allowed as a child of this node
         ret = escapeTextContentForBrowser(contentToUse);
+        if (__DEV__) {
+          setContentChildForInstrumentation.call(this, contentToUse);
+        }
       } else if (childrenToUse != null) {
         var mountImages = this.mountChildren(
           childrenToUse,
@@ -736,6 +775,9 @@ ReactDOMComponent.Mixin = {
       var childrenToUse = contentToUse != null ? null : props.children;
       if (contentToUse != null) {
         // TODO: Validate that text is allowed as a child of this node
+        if (__DEV__) {
+          setContentChildForInstrumentation.call(this, contentToUse);
+        }
         DOMLazyTree.queueText(lazyTree, contentToUse);
       } else if (childrenToUse != null) {
         var mountImages = this.mountChildren(
@@ -887,7 +929,7 @@ ReactDOMComponent.Mixin = {
             );
             this._previousStyle = nextProp;
           }
-          nextProp = this._previousStyleCopy = assign({}, nextProp);
+          nextProp = this._previousStyleCopy = Object.assign({}, nextProp);
         } else {
           this._previousStyleCopy = null;
         }
@@ -983,17 +1025,34 @@ ReactDOMComponent.Mixin = {
       this.updateChildren(null, transaction, context);
     } else if (lastHasContentOrHtml && !nextHasContentOrHtml) {
       this.updateTextContent('');
+      if (__DEV__) {
+        ReactInstrumentation.debugTool.onSetChildren(this._debugID, []);
+      }
     }
 
     if (nextContent != null) {
       if (lastContent !== nextContent) {
         this.updateTextContent('' + nextContent);
+        if (__DEV__) {
+          this._contentDebugID = this._debugID + '#text';
+          setContentChildForInstrumentation.call(this, nextContent);
+        }
       }
     } else if (nextHtml != null) {
       if (lastHtml !== nextHtml) {
         this.updateMarkup('' + nextHtml);
       }
+      if (__DEV__) {
+        ReactInstrumentation.debugTool.onSetChildren(this._debugID, []);
+      }
     } else if (nextChildren != null) {
+      if (__DEV__) {
+        if (this._contentDebugID) {
+          ReactInstrumentation.debugTool.onUnmountComponent(this._contentDebugID);
+          this._contentDebugID = null;
+        }
+      }
+
       this.updateChildren(nextChildren, transaction, context);
     }
   },
@@ -1023,6 +1082,10 @@ ReactDOMComponent.Mixin = {
           }
         }
         break;
+      case 'input':
+      case 'textarea':
+        inputValueTracking.stopTracking(this);
+        break;
       case 'html':
       case 'head':
       case 'body':
@@ -1051,6 +1114,11 @@ ReactDOMComponent.Mixin = {
     this._rootNodeID = null;
     this._domID = null;
     this._wrapperState = null;
+
+    if (this._contentDebugID) {
+      ReactInstrumentation.debugTool.onUnmountComponent(this._contentDebugID);
+      this._contentDebugID = null;
+    }
   },
 
   getPublicInstance: function() {
@@ -1064,7 +1132,7 @@ ReactPerf.measureMethods(ReactDOMComponent.Mixin, 'ReactDOMComponent', {
   receiveComponent: 'receiveComponent',
 });
 
-assign(
+Object.assign(
   ReactDOMComponent.prototype,
   ReactDOMComponent.Mixin,
   ReactMultiChild.Mixin

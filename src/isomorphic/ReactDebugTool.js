@@ -26,7 +26,7 @@ function emitEvent(handlerFunctionName, arg1, arg2, arg3, arg4, arg5) {
         }
       } catch (e) {
         warning(
-          !handlerDoesThrowForEvent[handlerFunctionName],
+          handlerDoesThrowForEvent[handlerFunctionName],
           'exception thrown by devtool while handling %s: %s',
           handlerFunctionName,
           e.message
@@ -55,20 +55,38 @@ var ReactDebugTool = {
   onEndProcessingChildContext() {
     emitEvent('onEndProcessingChildContext');
   },
+  onNativeOperation(debugID, type, payload) {
+    emitEvent('onNativeOperation', debugID, type, payload);
+  },
   onSetState() {
     emitEvent('onSetState');
   },
-  onMountRootComponent(internalInstance) {
-    emitEvent('onMountRootComponent', internalInstance);
+  onSetDisplayName(debugID, displayName) {
+    emitEvent('onSetDisplayName', debugID, displayName);
   },
-  onMountComponent(internalInstance) {
-    emitEvent('onMountComponent', internalInstance);
+  onSetChildren(debugID, childDebugIDs) {
+    emitEvent('onSetChildren', debugID, childDebugIDs);
   },
-  onUpdateComponent(internalInstance) {
-    emitEvent('onUpdateComponent', internalInstance);
+  onSetOwner(debugID, ownerDebugID) {
+    emitEvent('onSetOwner', debugID, ownerDebugID);
   },
-  onUnmountComponent(internalInstance) {
-    emitEvent('onUnmountComponent', internalInstance);
+  onSetText(debugID, text) {
+    emitEvent('onSetText', debugID, text);
+  },
+  onMountRootComponent(debugID) {
+    emitEvent('onMountRootComponent', debugID);
+  },
+  onMountComponent(debugID) {
+    emitEvent('onMountComponent', debugID);
+  },
+  onUpdateComponent(debugID) {
+    emitEvent('onUpdateComponent', debugID);
+  },
+  onUnmountComponent(debugID) {
+    emitEvent('onUnmountComponent', debugID);
+  },
+  onTestEvent() {
+    emitEvent('onTestEvent');
   },
 };
 

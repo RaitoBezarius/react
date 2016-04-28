@@ -14,9 +14,9 @@
 var DOMChildrenOperations = require('DOMChildrenOperations');
 var DOMLazyTree = require('DOMLazyTree');
 var ReactDOMComponentTree = require('ReactDOMComponentTree');
+var ReactInstrumentation = require('ReactInstrumentation');
 var ReactPerf = require('ReactPerf');
 
-var assign = require('Object.assign');
 var escapeTextContentForBrowser = require('escapeTextContentForBrowser');
 var invariant = require('invariant');
 var validateDOMNesting = require('validateDOMNesting');
@@ -51,7 +51,7 @@ var ReactDOMTextComponent = function(text) {
   this._commentNodes = null;
 };
 
-assign(ReactDOMTextComponent.prototype, {
+Object.assign(ReactDOMTextComponent.prototype, {
 
   /**
    * Creates the markup for this text node. This node is not intended to have
@@ -68,6 +68,8 @@ assign(ReactDOMTextComponent.prototype, {
     context
   ) {
     if (__DEV__) {
+      ReactInstrumentation.debugTool.onSetText(this._debugID, this._stringText);
+
       var parentInfo;
       if (nativeParent != null) {
         parentInfo = nativeParent._ancestorInfo;
@@ -141,6 +143,10 @@ assign(ReactDOMTextComponent.prototype, {
           commentNodes[1],
           nextStringText
         );
+
+        if (__DEV__) {
+          ReactInstrumentation.debugTool.onSetText(this._debugID, nextStringText);
+        }
       }
     }
   },

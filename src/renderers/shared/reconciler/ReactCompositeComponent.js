@@ -24,7 +24,6 @@ var ReactPropTypeLocationNames = require('ReactPropTypeLocationNames');
 var ReactReconciler = require('ReactReconciler');
 var ReactUpdateQueue = require('ReactUpdateQueue');
 
-var assign = require('Object.assign');
 var emptyObject = require('emptyObject');
 var invariant = require('invariant');
 var shouldUpdateReactComponent = require('shouldUpdateReactComponent');
@@ -59,6 +58,10 @@ function warnIfInvalidElement(Component, element) {
       Component.displayName || Component.name || 'Component'
     );
   }
+}
+
+function shouldConstruct(Component) {
+  return Component.prototype && Component.prototype.isReactComponent;
 }
 
 /**
@@ -129,6 +132,9 @@ var ReactCompositeComponentMixin = {
 
     // See ReactUpdates and ReactUpdateQueue.
     this._pendingCallbacks = null;
+
+    // ComponentWillUnmount shall only be called once
+    this._calledComponentWillUnmount = false;
   },
 
   /**
@@ -159,44 +165,22 @@ var ReactCompositeComponentMixin = {
     var Component = this._currentElement.type;
 
     // Initialize the public class
-    var inst;
+    var inst = this._constructComponent(publicProps, publicContext);
     var renderedElement;
 
-    if (Component.prototype && Component.prototype.isReactComponent) {
-      if (__DEV__) {
-        ReactCurrentOwner.current = this;
-        try {
-          inst = new Component(publicProps, publicContext, ReactUpdateQueue);
-        } finally {
-          ReactCurrentOwner.current = null;
-        }
-      } else {
-        inst = new Component(publicProps, publicContext, ReactUpdateQueue);
-      }
-    } else {
-      if (__DEV__) {
-        ReactCurrentOwner.current = this;
-        try {
-          inst = Component(publicProps, publicContext, ReactUpdateQueue);
-        } finally {
-          ReactCurrentOwner.current = null;
-        }
-      } else {
-        inst = Component(publicProps, publicContext, ReactUpdateQueue);
-      }
-      if (inst == null || inst.render == null) {
-        renderedElement = inst;
-        warnIfInvalidElement(Component, renderedElement);
-        invariant(
-          inst === null ||
-          inst === false ||
-          ReactElement.isValidElement(inst),
-          '%s(...): A valid React element (or null) must be returned. You may have ' +
-          'returned undefined, an array or some other invalid object.',
-          Component.displayName || Component.name || 'Component'
-        );
-        inst = new StatelessComponent(Component);
-      }
+    // Support functional components
+    if (!shouldConstruct(Component) && (inst == null || inst.render == null)) {
+      renderedElement = inst;
+      warnIfInvalidElement(Component, renderedElement);
+      invariant(
+        inst === null ||
+        inst === false ||
+        ReactElement.isValidElement(inst),
+        '%s(...): A valid React element (or null) must be returned. You may have ' +
+        'returned undefined, an array or some other invalid object.',
+        Component.displayName || Component.name || 'Component'
+      );
+      inst = new StatelessComponent(Component);
     }
 
     if (__DEV__) {
@@ -324,6 +308,28 @@ var ReactCompositeComponentMixin = {
     return markup;
   },
 
+  _constructComponent: function(publicProps, publicContext) {
+    if (__DEV__) {
+      ReactCurrentOwner.current = this;
+      try {
+        return this._constructComponentWithoutOwner(publicProps, publicContext);
+      } finally {
+        ReactCurrentOwner.current = null;
+      }
+    } else {
+      return this._constructComponentWithoutOwner(publicProps, publicContext);
+    }
+  },
+
+  _constructComponentWithoutOwner: function(publicProps, publicContext) {
+    var Component = this._currentElement.type;
+    if (shouldConstruct(Component)) {
+      return new Component(publicProps, publicContext, ReactUpdateQueue);
+    } else {
+      return Component(publicProps, publicContext, ReactUpdateQueue);
+    }
+  },
+
   performInitialMountWithErrorHandling: function(
     renderedElement,
     nativeParent,
@@ -383,6 +389,17 @@ var ReactCompositeComponentMixin = {
       this._processChildContext(context)
     );
 
+    if (__DEV__) {
+      if (this._debugID !== 0) {
+        ReactInstrumentation.debugTool.onSetChildren(
+          this._debugID,
+          this._renderedComponent._debugID !== 0 ?
+            [this._renderedComponent._debugID] :
+            []
+        );
+      }
+    }
+
     return markup;
   },
 
@@ -402,7 +419,8 @@ var ReactCompositeComponentMixin = {
     }
     var inst = this._instance;
 
-    if (inst.componentWillUnmount) {
+    if (inst.componentWillUnmount && !inst._calledComponentWillUnmount) {
+      inst._calledComponentWillUnmount = true;
       if (safely) {
         var name = this.getName() + '.componentWillUnmount()';
         ReactErrorUtils.invokeGuardedCallback(name, inst.componentWillUnmount.bind(inst));
@@ -526,7 +544,7 @@ var ReactCompositeComponentMixin = {
           name
         );
       }
-      return assign({}, currentContext, childContext);
+      return Object.assign({}, currentContext, childContext);
     }
     return currentContext;
   },
@@ -759,10 +777,10 @@ var ReactCompositeComponentMixin = {
       return queue[0];
     }
 
-    var nextState = assign({}, replace ? queue[0] : inst.state);
+    var nextState = Object.assign({}, replace ? queue[0] : inst.state);
     for (var i = replace ? 1 : 0; i < queue.length; i++) {
       var partial = queue[i];
-      assign(
+      Object.assign(
         nextState,
         typeof partial === 'function' ?
           partial.call(inst, nextState, props, context) :
@@ -850,6 +868,7 @@ var ReactCompositeComponentMixin = {
       this._renderedComponent = this._instantiateReactComponent(
         nextRenderedElement
       );
+
       var nextMarkup = ReactReconciler.mountComponent(
         this._renderedComponent,
         transaction,
@@ -857,7 +876,23 @@ var ReactCompositeComponentMixin = {
         this._nativeContainerInfo,
         this._processChildContext(context)
       );
-      this._replaceNodeWithMarkup(oldNativeNode, nextMarkup);
+
+      if (__DEV__) {
+        if (this._debugID !== 0) {
+          ReactInstrumentation.debugTool.onSetChildren(
+            this._debugID,
+            this._renderedComponent._debugID !== 0 ?
+              [this._renderedComponent._debugID] :
+              []
+          );
+        }
+      }
+
+      this._replaceNodeWithMarkup(
+        oldNativeNode,
+        nextMarkup,
+        prevComponentInstance
+      );
     }
   },
 
@@ -866,10 +901,11 @@ var ReactCompositeComponentMixin = {
    *
    * @protected
    */
-  _replaceNodeWithMarkup: function(oldNativeNode, nextMarkup) {
+  _replaceNodeWithMarkup: function(oldNativeNode, nextMarkup, prevInstance) {
     ReactComponentEnvironment.replaceNodeWithMarkup(
       oldNativeNode,
-      nextMarkup
+      nextMarkup,
+      prevInstance
     );
   },
 
